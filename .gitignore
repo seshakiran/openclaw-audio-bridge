@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+eggs/
+*.egg
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Environment variables / secrets
+.env
+.env.local
+.env.*.local
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Temp audio files
+temp_audio*.wav
+test_*.wav
+tts_*.wav
+tts_*.mp3
+
+# SQLite databases (auto-generated)
+data/filler.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Model cache (downloaded on first run)
+models/
+
+# Music files (add your own — see music/README.md)
+music/*.mp3
+music/*.wav
+music/*.m4a
+music/*.ogg
