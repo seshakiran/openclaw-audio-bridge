@@ -6,6 +6,25 @@ A voice-powered AI assistant that bridges **OpenClaw** with natural speech — e
 
 ---
 
+## ⚡ TL;DR — Get Running in 60 Seconds
+
+```bash
+git clone https://github.com/seshakiran/openclaw-audio-bridge.git
+cd openclaw-audio-bridge
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+brew install ffmpeg                       # if not already installed
+cp .env.example .env
+python list_devices.py                    # find your mic index
+nano .env                                 # set MICROPHONE_INDEX to your mic
+# Drop some .mp3 files into music/ folder (optional, for background music)
+python main_v2.py                         # 🎙️ Say "Marvin, what's the news?"
+```
+
+> **Requires:** macOS 13+ with Apple Silicon (M1/M2/M3/M4), Python 3.10+, and [OpenClaw CLI](https://openclaw.ai) installed.
+
+---
+
 ## ✨ Features
 
 | Feature | Tech | Details |
