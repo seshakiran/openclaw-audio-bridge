@@ -97,7 +97,7 @@ class OpenClawBrain:
             payloads = response_data.get("result", {}).get("payloads", [])
             if payloads:
                 response_text = " ".join([p.get("text", "") for p in payloads if p.get("text")])
-                return f"Here's what I found. {response_text}"
+                return response_text
             else:
                 return "I checked, but didn't get a specific answer."
 

@@ -114,7 +114,9 @@ def is_echo(text):
     tts_phrases = [
         "let me work", "i'm on it", "looking into", "on it", "give me a moment",
         "here's what i found", "i found", "working on", "let me go",
-        "close enough", "robot", "yes", "stopped", "goodbye"
+        "close enough", "robot", "yes", "stopped", "goodbye",
+        "more detail", "if you like", "if you'd like", "want me to",
+        "dig deeper", "dig into", "anything specific"
     ]
     for phrase in tts_phrases:
         if phrase in text_lower:

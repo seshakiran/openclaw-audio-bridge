@@ -36,7 +36,10 @@ MODELS = {
 DEFAULT_MODEL = 'quality'
 
 # Max characters to speak (prevents 2+ minute TTS for huge responses)
-MAX_SPOKEN_LENGTH = 600
+MAX_SPOKEN_LENGTH = 1200
+
+# Flag to track if streaming is in progress
+_streaming_active = False
 
 
 def _clean_text_for_tts(text):
@@ -107,8 +110,6 @@ def _truncate_for_speech(text):
     if cut_point > MAX_SPOKEN_LENGTH * 0.4:
         truncated = truncated[:cut_point + 1]
     
-    # Add a note that there's more
-    truncated += " There's more detail available if you'd like."
     return truncated
 
 
@@ -190,7 +191,7 @@ def _speak_streamed(text):
     Generate and play audio in streaming chunks.
     Generates chunk N+1 while playing chunk N.
     """
-    global _current_process, _stop_requested
+    global _current_process, _stop_requested, _streaming_active
     import soundfile as sf
     import mlx.core as mx
 
@@ -200,6 +201,8 @@ def _speak_streamed(text):
 
     truncated = _truncate_for_speech(cleaned)
     chunks = _split_into_chunks(truncated)
+
+    _streaming_active = True
 
     with _generation_lock:
         model = _get_model()
@@ -232,8 +235,11 @@ def _speak_streamed(text):
                 # Play this chunk
                 _current_process = _play_audio_file(tf)
                 _current_process.wait()
+                _current_process = None
 
         finally:
+            _streaming_active = False
+            _current_process = None
             # Cleanup temp files
             for tf in temp_files:
                 try:
@@ -315,8 +321,9 @@ def wait_for_speech():
 
 def stop_speech():
     """Stop current speech immediately."""
-    global _current_process, _current_text, _stop_requested
+    global _current_process, _current_text, _stop_requested, _streaming_active
     _stop_requested = True
+    _streaming_active = False
     _current_text = ""
     if _current_process and _current_process.poll() is None:
         try:
@@ -346,7 +353,9 @@ def clear_recent_texts():
 
 
 def is_speaking():
-    global _current_process
+    global _current_process, _streaming_active
+    if _streaming_active:
+        return True
     return _current_process is not None and _current_process.poll() is None
 
 
