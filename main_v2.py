@@ -163,6 +163,12 @@ def stt_thread_func(stt):
         try:
             mode = get_mode()
             
+            # When in 'listening' mode, the main loop is handling STT directly
+            # via wait_for_command/get_complete_command — don't compete
+            if mode == 'listening':
+                time.sleep(0.2)
+                continue
+            
             # During speaking or processing, only do short listens for interrupt detection
             if mode in ['speaking', 'processing']:
                 result = stt.listen_short()
@@ -188,36 +194,65 @@ def stt_thread_func(stt):
 
 
 async def get_complete_command(stt, initial_command):
-    """Get complete command if it seems cut off."""
-    if len(initial_command) > 15:
+    """
+    Get the complete command from the user. 
+    Waits for continuation if the command seems incomplete.
+    """
+    # Only consider it complete if it's long AND ends with punctuation
+    if len(initial_command) > 30 and re.search(r'[.?!]$', initial_command.strip()):
         return initial_command
     
-    if re.search(r'[.?!]$', initial_command.strip()):
-        return initial_command
-    
-    # Complete-sounding endings
-    complete_endings = ['please', 'now', 'today', 'me', 'you', 'it', 'that', 'stocks', 
-                       'news', 'weather', 'doing', 'going', 'up', 'down']
-    if any(initial_command.lower().strip().endswith(word) for word in complete_endings):
-        return initial_command
-    
-    print(f"(Waiting for more...)")
-    
-    loop = asyncio.get_event_loop()
-    continuation = await loop.run_in_executor(None, stt.listen_long)
-    
-    if continuation:
-        if is_wake_word(continuation):
-            # New command
-            stt_queue.put(continuation)
-            return initial_command
+    # Always wait for more if the command is short
+    if len(initial_command) <= 30:
+        print(f"(Waiting for more...)")
         
-        if not is_echo(continuation):
-            full = f"{initial_command} {continuation}"
-            print(f"Complete: {full}")
-            return full
+        loop = asyncio.get_event_loop()
+        continuation = await loop.run_in_executor(None, stt.listen_long)
+        
+        if continuation:
+            if is_wake_word(continuation):
+                # New command — put it back
+                stt_queue.put(continuation)
+                return initial_command
+            
+            if not is_echo(continuation):
+                full = f"{initial_command} {continuation}"
+                print(f"Complete: {full}")
+                return full
     
     return initial_command
+
+
+async def wait_for_command(stt):
+    """
+    After hearing just the wake word, actively listen for the command.
+    Gives the user up to 5 seconds to say their command.
+    """
+    print("(Listening for command...)")
+    
+    loop = asyncio.get_event_loop()
+    
+    # Try up to 2 listen cycles (long listen = ~8 seconds each)
+    for attempt in range(2):
+        result = await loop.run_in_executor(None, stt.listen_long)
+        
+        if result:
+            # If they said the wake word again with a command, extract it
+            if is_wake_word(result):
+                command = extract_command(result)
+                if len(command) > 2:
+                    return command
+                # Just wake word again — keep listening
+                continue
+            
+            # Filter echoes
+            if is_echo(result):
+                continue
+            
+            # Got a real command
+            return result
+    
+    return None
 
 
 async def main():
@@ -277,61 +312,69 @@ async def main():
                 
                 command = extract_command(heard)
                 
-                if len(command) > 2:
+                # If just the wake word (or very short), ask and wait for the command
+                if len(command) <= 2:
+                    speak_sync("Yes?")
+                    mark_speech_ended()
+                    
                     set_mode('listening')
+                    command = await wait_for_command(stt_handler)
                     
-                    full_command = await get_complete_command(stt_handler, command)
-                    
-                    print(f"\n👤 User: {full_command}")
-                    
-                    # Exit commands
-                    if any(word in full_command.lower() for word in ["shutdown", "exit", "goodbye"]):
-                        speak_sync("Goodbye!")
-                        running = False
-                        continue
-                    
-                    # Process
-                    set_mode('processing')
-                    response = await brain.process_command(full_command)
-                    
-                    if response:
-                        set_mode('speaking')
-                        speak(response)
-                        
-                        # Allow interrupts while speaking
-                        while is_speaking():
-                            # Check queue for stop commands
-                            try:
-                                interrupt_text = stt_queue.get_nowait()
-                                if is_stop_command(interrupt_text):
-                                    print(f"\n🛑 STOP: '{interrupt_text}'")
-                                    stop_speech()
-                                    music.stop()
-                                    clear_recent_texts()
-                                    mark_speech_ended()
-                                    speak_sync("Stopped.")
-                                    mark_speech_ended()
-                                    break
-                                elif is_wake_word(interrupt_text):
-                                    # New command
-                                    print(f"\n🔄 New command detected")
-                                    stop_speech()
-                                    music.stop()
-                                    clear_recent_texts()
-                                    mark_speech_ended()
-                                    stt_queue.put(interrupt_text)
-                                    break
-                            except queue.Empty:
-                                pass
-                            await asyncio.sleep(0.1)
-                        
-                        mark_speech_ended()
+                    if not command or len(command) <= 2:
+                        # No command received — go back to idle
+                        print("(No command received)")
                         set_mode('idle')
-                else:
-                    # Just wake word
-                    if not is_speaking():
-                        speak_sync("Yes?")
-                        mark_speech_ended()
+                        continue
+                
+                # We have a command — check if it needs completion
+                set_mode('listening')
+                full_command = await get_complete_command(stt_handler, command)
+                
+                print(f"\n👤 User: {full_command}")
+                
+                # Exit commands
+                if any(word in full_command.lower() for word in ["shutdown", "exit", "goodbye"]):
+                    speak_sync("Goodbye!")
+                    running = False
+                    continue
+                
+                # Process
+                set_mode('processing')
+                response = await brain.process_command(full_command)
+                
+                if response:
+                    set_mode('speaking')
+                    speak(response)
+                    
+                    # Allow interrupts while speaking
+                    while is_speaking():
+                        # Check queue for stop commands
+                        try:
+                            interrupt_text = stt_queue.get_nowait()
+                            if is_stop_command(interrupt_text):
+                                print(f"\n🛑 STOP: '{interrupt_text}'")
+                                stop_speech()
+                                music.stop()
+                                clear_recent_texts()
+                                mark_speech_ended()
+                                speak_sync("Stopped.")
+                                mark_speech_ended()
+                                break
+                            elif is_wake_word(interrupt_text):
+                                # New command
+                                print(f"\n🔄 New command detected")
+                                stop_speech()
+                                music.stop()
+                                clear_recent_texts()
+                                mark_speech_ended()
+                                stt_queue.put(interrupt_text)
+                                break
+                        except queue.Empty:
+                            pass
+                        await asyncio.sleep(0.1)
+                    
+                    mark_speech_ended()
+                    set_mode('idle')
                 
                 continue
             
